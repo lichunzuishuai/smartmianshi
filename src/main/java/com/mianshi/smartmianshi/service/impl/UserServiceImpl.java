@@ -6,7 +6,9 @@ import cn.hutool.core.collection.CollUtil;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.mianshi.smartmianshi.common.ErrorCode;
+import com.mianshi.smartmianshi.config.RedissonConfig;
 import com.mianshi.smartmianshi.constant.CommonConstant;
+import com.mianshi.smartmianshi.constant.RedisConstant;
 import com.mianshi.smartmianshi.exception.BusinessException;
 import com.mianshi.smartmianshi.mapper.UserMapper;
 import com.mianshi.smartmianshi.model.dto.user.UserQueryRequest;
@@ -16,13 +18,18 @@ import com.mianshi.smartmianshi.model.vo.LoginUserVO;
 import com.mianshi.smartmianshi.model.vo.UserVO;
 import com.mianshi.smartmianshi.service.UserService;
 import com.mianshi.smartmianshi.utils.SqlUtils;
-import java.util.ArrayList;
-import java.util.List;
+
+import java.time.LocalDate;
+import java.time.Year;
+import java.util.*;
 import java.util.stream.Collectors;
+import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import me.chanjar.weixin.common.bean.WxOAuth2UserInfo;
 import org.apache.commons.lang3.StringUtils;
+import org.redisson.api.RBitSet;
+import org.redisson.api.RedissonClient;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.util.DigestUtils;
@@ -35,6 +42,8 @@ import org.springframework.util.DigestUtils;
 @Service
 @Slf4j
 public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements UserService {
+    @Resource
+    private RedissonClient redissonClient;
 
     /**
      * 盐值，混淆密码
@@ -267,5 +276,83 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         queryWrapper.orderBy(SqlUtils.validSortField(sortField), sortOrder.equals(CommonConstant.SORT_ORDER_ASC),
                 sortField);
         return queryWrapper;
+    }
+
+    /**
+     * 添加用户签到记录
+     *
+     * @param userId 用户id
+     * @return 当前用户是否已签到成功
+     */
+    @Override
+    public Boolean addUserSignIn(long userId) {
+        LocalDate data = LocalDate.now();
+        String key = RedisConstant.getUserSignInRedisKey(data.getYear(), userId);
+        // 获取 Redis 中的 BitMap(BitMap和BitSet是一回事)
+        RBitSet signInBitSet = redissonClient.getBitSet(key);
+        //获取当前日期是一年当中的第几天
+        int offset = data.getDayOfYear();
+        //查询当天有没有签到
+        if (!signInBitSet.get(offset)) {
+            //如果当天没有签到，则进行签到
+            boolean result = signInBitSet.set(offset, true);
+        }
+        //当天已经签到
+        return true;
+    }
+
+    /**
+     * 获取用户签到记录
+     *
+     * @param userId 用户id
+     * @param year   查询年份
+     * @return 用户签到记录映射
+     */
+    @Override
+    public List<Integer> getUserSignInRecord(Long userId, Integer year) {
+        if (year == null) {
+            LocalDate data = LocalDate.now();
+            year = data.getYear();
+        }
+        String key = RedisConstant.getUserSignInRedisKey(year, userId);
+        // 获取 Redis 中的 BitMap(BitMap和BitSet是一回事)
+        RBitSet signBitSet = redissonClient.getBitSet(key);
+        //加载BitSet到内存中，避免后续读取时发送多次请求
+        BitSet bitSet = signBitSet.asBitSet();
+        //统计签到的日期
+        List<Integer> signInDays = new ArrayList<>();
+
+        /**
+         * 假设用户的签到情况如下（一年中的第几天）：
+         * 第 5 天签到（索引 5）
+         * 第 10 天签到（索引 10）
+         * 第 20 天签到（索引 20）
+         * BitSet 的状态类似于：000001000010000000001...
+         * 执行过程：
+         * index = bitSet.nextSetBit(0) → 返回 5（第一个设置为1的位）
+         * index != -1 为 true，进入循环
+         * signInDays.add(5) → 将 5 添加到列表
+         * index = bitSet.nextSetBit(5 + 1) → 即 bitSet.nextSetBit(6) → 返回 10
+         * index != -1 为 true，继续循环
+         * signInDays.add(10) → 将 10 添加到列表
+         * index = bitSet.nextSetBit(10 + 1) → 即 bitSet.nextSetBit(11) → 返回 20
+         * index != -1 为 true，继续循环
+         * signInDays.add(20) → 将 20 添加到列表
+         * index = bitSet.nextSetBit(20 + 1) → 即 bitSet.nextSetBit(21) → 返回 -1
+         * index != -1 为 false，退出循环
+         * 所以，这段代码能够正确找到所有设置为 1 的位，不会遗漏任何签到记录。
+         * 关键点在于：
+         * nextSetBit(0) 查找第一个设置为 1 的位（不管它在哪个索引）
+         * 在循环中，每次都从 index + 1 开始查找下一个设置为 1 的位
+         * 直到找不到更多设置为 1 的位（返回 -1）为止
+         * 因此，代码逻辑是正确的，可以找到所有签到记录，不会遗漏索引 0 之后的任何签到。
+         */
+        //从索引0开始，获取下一个被置为1的位
+        int index = bitSet.nextSetBit(0);
+        while (index != -1) {
+            signInDays.add(index);
+            index = bitSet.nextSetBit(index + 1);
+        }
+        return signInDays;
     }
 }

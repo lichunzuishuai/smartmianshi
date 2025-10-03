@@ -6,7 +6,10 @@ import com.mianshi.smartmianshi.model.dto.user.UserQueryRequest;
 import com.mianshi.smartmianshi.model.entity.User;
 import com.mianshi.smartmianshi.model.vo.LoginUserVO;
 import com.mianshi.smartmianshi.model.vo.UserVO;
+
+import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import javax.servlet.http.HttpServletRequest;
 import me.chanjar.weixin.common.bean.WxOAuth2UserInfo;
 
@@ -117,4 +120,20 @@ public interface UserService extends IService<User> {
      */
     QueryWrapper<User> getQueryWrapper(UserQueryRequest userQueryRequest);
 
+    /**
+     * 添加用户签到记录
+     *
+     * @param userId 用户id
+     * @return 当前用户是否已签到成功
+     */
+    Boolean addUserSignIn(long userId);
+
+    /**
+     * 获取用户签到记录
+     *
+     * @param userId 用户id
+     * @param year   查询年份
+     * @return 用户签到记录映射
+     */
+    List<Integer> getUserSignInRecord(Long userId, Integer year);
 }

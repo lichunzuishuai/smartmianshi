@@ -1,6 +1,8 @@
 package com.mianshi.smartmianshi.mapper;
 
 import com.mianshi.smartmianshi.model.entity.Post;
+
+import java.util.BitSet;
 import java.util.Date;
 import java.util.List;
 import javax.annotation.Resource;
@@ -24,4 +26,5 @@ class PostMapperTest {
         List<Post> postList = postMapper.listPostWithDelete(new Date());
         Assertions.assertNotNull(postList);
     }
+
 }

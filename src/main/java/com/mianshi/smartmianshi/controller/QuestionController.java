@@ -14,10 +14,7 @@ import com.mianshi.smartmianshi.common.ResultUtils;
 import com.mianshi.smartmianshi.constant.UserConstant;
 import com.mianshi.smartmianshi.exception.BusinessException;
 import com.mianshi.smartmianshi.exception.ThrowUtils;
-import com.mianshi.smartmianshi.model.dto.question.QuestionAddRequest;
-import com.mianshi.smartmianshi.model.dto.question.QuestionEditRequest;
-import com.mianshi.smartmianshi.model.dto.question.QuestionQueryRequest;
-import com.mianshi.smartmianshi.model.dto.question.QuestionUpdateRequest;
+import com.mianshi.smartmianshi.model.dto.question.*;
 import com.mianshi.smartmianshi.model.entity.Question;
 import com.mianshi.smartmianshi.model.entity.QuestionBankQuestion;
 import com.mianshi.smartmianshi.model.entity.User;
@@ -67,6 +64,10 @@ public class QuestionController {
         // todo 在此处将实体类和 DTO 进行转换
         Question question = new Question();
         BeanUtils.copyProperties(questionAddRequest, question);
+        List<String> tags = questionAddRequest.getTags();
+        if(tags!=null){
+            question.setTags(JSONUtil.toJsonStr(tags));
+        }
         // 数据校验
         questionService.validQuestion(question, true);
         // todo 填充默认值
@@ -123,6 +124,10 @@ public class QuestionController {
         // todo 在此处将实体类和 DTO 进行转换
         Question question = new Question();
         BeanUtils.copyProperties(questionUpdateRequest, question);
+        List<String> tags = questionUpdateRequest.getTags();
+        if(tags!=null){
+            question.setTags(JSONUtil.toJsonStr(tags));
+        }
         // 数据校验
         questionService.validQuestion(question, false);
         // 判断是否存在
@@ -249,5 +254,27 @@ public class QuestionController {
         return ResultUtils.success(true);
     }
 
-    // endregion
+    @PostMapping("/search/page/vo")
+    public BaseResponse<Page<QuestionVO>> searchQuestionVOByPage(@RequestBody QuestionQueryRequest questionQueryRequest,
+                                                                 HttpServletRequest request) {
+        long size = questionQueryRequest.getPageSize();
+        // 限制爬虫
+        ThrowUtils.throwIf(size > 200, ErrorCode.PARAMS_ERROR);
+        Page<Question> questionPage = questionService.searchFromEs(questionQueryRequest);
+        return ResultUtils.success(questionService.getQuestionVOPage(questionPage, request));
+    }
+
+    /**
+     * 批量删除题目
+     *
+     * @param questionBatchDeleteRequest
+     */
+    @PostMapping("delete/batch")
+    @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
+    public BaseResponse<Boolean> batchDeleteQuestions(@RequestBody QuestionBatchDeleteRequest questionBatchDeleteRequest,
+                                                      HttpServletRequest request) {
+        ThrowUtils.throwIf(questionBatchDeleteRequest == null, ErrorCode.PARAMS_ERROR);
+        questionService.batchDeleteQuestion(questionBatchDeleteRequest.getQuestionIdList());
+        return ResultUtils.success(true);
+    }
 }

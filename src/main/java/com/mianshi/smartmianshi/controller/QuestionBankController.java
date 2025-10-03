@@ -1,6 +1,7 @@
 package com.mianshi.smartmianshi.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.jd.platform.hotkey.client.callback.JdHotKeyStore;
 import com.mianshi.smartmianshi.annotation.AuthCheck;
 import com.mianshi.smartmianshi.common.BaseResponse;
 import com.mianshi.smartmianshi.common.DeleteRequest;
@@ -18,11 +19,13 @@ import com.mianshi.smartmianshi.model.entity.Question;
 import com.mianshi.smartmianshi.model.entity.QuestionBank;
 import com.mianshi.smartmianshi.model.entity.User;
 import com.mianshi.smartmianshi.model.vo.QuestionBankVO;
+import com.mianshi.smartmianshi.model.vo.QuestionVO;
 import com.mianshi.smartmianshi.service.QuestionBankService;
 import com.mianshi.smartmianshi.service.QuestionService;
 import com.mianshi.smartmianshi.service.UserService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
@@ -43,6 +46,7 @@ public class QuestionBankController {
     private UserService userService;
 
     @Resource
+    @Lazy
     private QuestionService questionService;
 
     // region 增删改查
@@ -140,6 +144,17 @@ public class QuestionBankController {
         ThrowUtils.throwIf(questionBankQueryRequest == null, ErrorCode.PARAMS_ERROR);
         Long id = questionBankQueryRequest.getId();
         ThrowUtils.throwIf(id <= 0, ErrorCode.PARAMS_ERROR);
+        //生成 key
+        String key = "bank_detail_"+id;
+        //如果是热 key
+        if (JdHotKeyStore.isHotKey(key)){
+            //从本地缓存中获取缓存值
+            Object cachedQuestionBankVo = JdHotKeyStore.get(key);
+            if(cachedQuestionBankVo !=null){
+                //如果缓存中有值，直接返回缓存的值
+                return ResultUtils.success((QuestionBankVO)cachedQuestionBankVo);
+            }
+        }
         // 查询数据库
         QuestionBank questionBank = questionBankService.getById(id);
         ThrowUtils.throwIf(questionBank == null, ErrorCode.NOT_FOUND_ERROR);
@@ -150,9 +165,15 @@ public class QuestionBankController {
         if (needQueryQuestionList) {
             QuestionQueryRequest questionQueryRequest = new QuestionQueryRequest();
             questionQueryRequest.setQuestionBankId(id);
+            //可以按需支持更多的题目搜索参数，比如分页
+            questionQueryRequest.setPageSize(questionBankQueryRequest.getPageSize());
+            questionQueryRequest.setCurrent(questionBankQueryRequest.getCurrent());
             Page<Question> questionPage = questionService.listQuestionByPage(questionQueryRequest);
-            questionBankVO.setQuestionPage(questionPage);
+            Page<QuestionVO> questionVOPage = questionService.getQuestionVOPage(questionPage, request);
+            questionBankVO.setQuestionPage(questionVOPage);
         }
+        //设置本地缓存（如果不是热Key,这个方法不会设置缓存）
+        JdHotKeyStore.smartSet(key,questionBankVO);
         // 获取封装类
         return ResultUtils.success(questionBankVO);
     }
@@ -187,7 +208,7 @@ public class QuestionBankController {
         long current = questionBankQueryRequest.getCurrent();
         long size = questionBankQueryRequest.getPageSize();
         // 限制爬虫
-        ThrowUtils.throwIf(size > 20, ErrorCode.PARAMS_ERROR);
+        ThrowUtils.throwIf(size > 200, ErrorCode.PARAMS_ERROR);
         // 查询数据库
         Page<QuestionBank> questionBankPage = questionBankService.page(new Page<>(current, size),
                 questionBankService.getQueryWrapper(questionBankQueryRequest));
